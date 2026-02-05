@@ -1,38 +1,46 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
-import { createClient } from '@supabase/supabase-js';
+import Groq from "groq-sdk";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || "");
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// FIX: Define a clear interface for the incoming history items
+interface HistoryItem {
+  role: string;
+  parts: { text: string }[];
+}
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, mode, history } = await req.json();
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: "You are the Lumina.ai Grader. Analyze the prompt and return ONLY a JSON object: { \"score\": number, \"feedback\": \"string\" }. Feedback must be the re-architected version of the user's messy intent."
+    // FIX: Replaced 'any' with the specific Groq message type
+    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are the Lumina Architect (${mode} mode). 
+        1. Assign a Context Score (0-100) based on user detail.
+        2. If score < 100, ask 2-3 specific questions in 'feedback'.
+        3. If score is 100, provide the final prompt in 'architected_prompt'.
+        Return ONLY JSON: {"score": number, "feedback": "string", "architected_prompt": "string|null"}`
+      },
+      // FIX: Explicitly typed the history mapping
+      ...history.map((h: HistoryItem): Groq.Chat.ChatCompletionMessageParam => ({
+        role: (h.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: h.parts[0].text
+      })),
+      { role: "user", content: prompt }
+    ];
+
+    const completion = await groq.chat.completions.create({
+      messages: messages, // Now type-safe
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" },
     });
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const data = JSON.parse(responseText.replace(/```json|```/g, ""));
-
-    // Save to database
-    await supabase.from('prompts').insert([
-      {
-        original_text: prompt,
-        architected_prompt: data.feedback,
-        score: data.score
-      }
-    ]);
-
-    return NextResponse.json(data);
-  } catch {
-    // Prefixing with underscore fixes the 'unused variable' error
-    return NextResponse.json({ score: 10, feedback: "System Error" }, { status: 500 });
+    const result = completion.choices[0]?.message?.content;
+    return NextResponse.json(JSON.parse(result || "{}"));
+  } catch (error) {
+    console.error("Groq Error:", error);
+    return NextResponse.json({ error: "Architect failed to connect." }, { status: 500 });
   }
 }

@@ -1,18 +1,69 @@
-import { ModeToggle } from "./mode-toggle"
+"use client"
 
-export function Navbar() {
+import * as React from "react"
+import Link from "next/link"
+import { supabase } from "@/lib/supabase"
+import { Button } from "@/components/ui/button"
+import { LogOut, Menu, Info } from "lucide-react"
+import { type User } from "@supabase/supabase-js"
+import { ModeToggle } from "./mode-toggle" // FIX: Import the functional toggle
+
+interface NavbarProps {
+  onToggleSidebar: () => void;
+}
+
+export function Navbar({ onToggleSidebar }: NavbarProps) {
+  const [user, setUser] = React.useState<User | null>(null)
+
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
   return (
-    // We use bg-transparent and backdrop-blur to let the background orbs flow through
-    <nav className="sticky top-0 z-50 w-full bg-transparent backdrop-blur-md transition-colors duration-500">
-      <div className="container mx-auto flex h-20 items-center justify-between px-8">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-            <span className="text-white font-black text-xl">L</span>
-          </div>
-          <span className="text-2xl font-bold tracking-tighter">Lumina.ai</span>
+    <header className="fixed top-0 left-0 right-0 h-20 border-b border-border bg-background/80 backdrop-blur-3xl z-50 px-6 flex items-center justify-between">
+      <div className="flex items-center gap-6">
+        <Button variant="ghost" size="icon" onClick={onToggleSidebar}>
+          <Menu className="w-5 h-5" />
+        </Button>
+        
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center gap-2 group">
+            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-black text-black text-xs group-hover:scale-110 transition-transform">L</div>
+            <span className="font-black text-lg tracking-tighter uppercase">Lumina<span className="text-emerald-500">.ai</span></span>
+          </Link>
+
+          <Link href="/about" className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-emerald-500 transition-colors flex items-center gap-2">
+            <Info className="w-3 h-3" /> About
+          </Link>
         </div>
-        <ModeToggle />
       </div>
-    </nav>
+
+      <div className="flex items-center gap-4">
+        {/* ADDED: Functional Theme Toggle */}
+        <ModeToggle />
+
+        {user ? (
+          <div className="flex items-center gap-3">
+            <div className="text-right hidden md:block">
+              <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">Logged In</p>
+              <p className="text-[12px] text-muted-foreground truncate max-w-37.5">{user.email}</p>
+            </div>
+            <Button onClick={() => supabase.auth.signOut()} variant="ghost" size="icon" className="rounded-full hover:bg-rose-500/10 hover:text-rose-500">
+              <LogOut className="w-5 h-5" />
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" className="rounded-full border-emerald-500/20 text-emerald-500 font-bold px-6">
+            Sign In
+          </Button>
+        )}
+      </div>
+    </header>
   )
 }
